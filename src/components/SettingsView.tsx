@@ -43,6 +43,16 @@ const ENTITY_LABELS: Record<string, string> = {
   water_meter: "Wasserzählerstand (m³)",
   water_today: "Wasser heute (L)",
   water_temp: "Wassertemperatur (°C)",
+  hp_status: "Wärmepumpe Status",
+  hp_comp_starts: "WP Verdichterstarts",
+  hp_comp_hours: "WP Verdichter-Stunden",
+  hp_backup_hours: "WP Heizstab-Stunden",
+  hp_flow_temp: "WP Vorlauftemperatur (°C)",
+  hp_return_temp: "WP Rücklauftemperatur (°C)",
+  hp_outside_temp: "WP Außentemperatur (°C)",
+  hp_source_in_temp: "WP Sole Eingang (°C)",
+  hp_source_out_temp: "WP Sole Ausgang (°C)",
+  hp_room_temp: "WP Wohnzimmer Temp. (°C)",
 };
 
 export function SettingsView({

@@ -1,4 +1,4 @@
-export type ViewId = "dashboard" | "overview" | "trends" | "camera" | "settings";
+export type ViewId = "dashboard" | "overview" | "trends" | "heatpump" | "camera" | "settings";
 
 export type OverviewPeriod = "day" | "month" | "quarter" | "year";
 
@@ -46,6 +46,16 @@ export interface EntityConfig {
   water_today: string;
   water_temp: string;
   top_consumers: string[];
+  hp_status: string;
+  hp_comp_starts: string;
+  hp_comp_hours: string;
+  hp_backup_hours: string;
+  hp_flow_temp: string;
+  hp_return_temp: string;
+  hp_outside_temp: string;
+  hp_source_in_temp: string;
+  hp_source_out_temp: string;
+  hp_room_temp: string;
 }
 
 export interface EconomicSettings {
@@ -114,6 +124,48 @@ export interface WeeklyStat {
   previous: number;
 }
 
+export interface HeatpumpTempPoint {
+  time: string;
+  flow: number | null;
+  returnTemp: number | null;
+  outside: number | null;
+  room: number | null;
+  sourceIn: number | null;
+  sourceOut: number | null;
+  spread: number | null;
+}
+
+export interface HeatpumpCycleSegment {
+  status: string;
+  start: number;
+  end: number;
+  durationMin: number;
+}
+
+export interface HeatpumpAnalysis {
+  loading: boolean;
+  error: string | null;
+  lastAnalyzed: number | null;
+  hoursWindow: number;
+  heatCycles: number;
+  avgHeatMinutes: number;
+  avgStandbyMinutes: number;
+  otShutdownCount: number;
+  compStartsDelta: number | null;
+  compHoursDelta: number | null;
+  backupHoursDelta: number | null;
+  avgSpreadK: number | null;
+  outsideAvg: number | null;
+  outsideMin: number | null;
+  outsideMax: number | null;
+  roomAvg: number | null;
+  sourceInAvg: number | null;
+  sourceOutAvg: number | null;
+  sourceSpreadK: number | null;
+  tempSeries: HeatpumpTempPoint[];
+  recentCycles: HeatpumpCycleSegment[];
+}
+
 export interface DashboardState {
   solar_power: number;
   grid_power: number;
@@ -133,6 +185,11 @@ export interface DashboardState {
   water_meter: number | null;
   water_today: number | null;
   water_temp: number | null;
+  hp_live_status: string | null;
+  hp_live_flow: number | null;
+  hp_live_return: number | null;
+  hp_live_outside: number | null;
+  hp_live_room: number | null;
   current_energy_price: number | null;
   camera_image_url: string | null;
   motion_detected: boolean;
@@ -153,4 +210,5 @@ export interface DashboardState {
     weekly: WeeklyStat[];
   };
   periodBuckets: PeriodBucket[];
+  heatpump: HeatpumpAnalysis;
 }

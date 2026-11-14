@@ -4,6 +4,8 @@ import {
   DashboardConfig,
   DashboardState,
   EntityOption,
+  HeatpumpCycleSegment,
+  HeatpumpTempPoint,
   MonthlyStat,
   OverviewPeriod,
   PeriodBucket,
@@ -24,6 +26,8 @@ interface HaStateObj {
 interface RecorderStatPoint {
   start: string | number;
   mean?: number | null;
+  min?: number | null;
+  max?: number | null;
   state?: number | string | null;
   change?: number | null;
 }
@@ -47,6 +51,11 @@ const INITIAL_STATE: DashboardState = {
   water_meter: null,
   water_today: null,
   water_temp: null,
+  hp_live_status: null,
+  hp_live_flow: null,
+  hp_live_return: null,
+  hp_live_outside: null,
+  hp_live_room: null,
   current_energy_price: null,
   camera_image_url: null,
   motion_detected: false,
@@ -59,6 +68,29 @@ const INITIAL_STATE: DashboardState = {
   history: { solar: [], consumption: [], battery: [], water: [] },
   statistics: { monthly: [], weekly: [] },
   periodBuckets: [],
+  heatpump: {
+    loading: false,
+    error: null,
+    lastAnalyzed: null,
+    hoursWindow: 24,
+    heatCycles: 0,
+    avgHeatMinutes: 0,
+    avgStandbyMinutes: 0,
+    otShutdownCount: 0,
+    compStartsDelta: null,
+    compHoursDelta: null,
+    backupHoursDelta: null,
+    avgSpreadK: null,
+    outsideAvg: null,
+    outsideMin: null,
+    outsideMax: null,
+    roomAvg: null,
+    sourceInAvg: null,
+    sourceOutAvg: null,
+    sourceSpreadK: null,
+    tempSeries: [],
+    recentCycles: [],
+  },
 };
 
 function parseNumOrNull(val: string): number | null {
@@ -489,6 +521,260 @@ export function useHomeAssistant() {
     }
   }, [state.connected, requestWs]);
 
+  const fetchHeatpumpAnalysis = useCallback(
+    async (hours = 24) => {
+      const cfg = configRef.current;
+      if (!cfg.ha_url || !cfg.token) return;
+
+      setState((prev) => ({
+        ...prev,
+        heatpump: { ...prev.heatpump, loading: true, error: null, hoursWindow: hours },
+      }));
+
+      const now = Date.now();
+      const startIso = new Date(now - hours * 3600 * 1000).toISOString();
+      const endIso = new Date(now).toISOString();
+
+      const historyIds = [
+        cfg.entities.hp_status,
+        cfg.entities.hp_comp_starts,
+        cfg.entities.hp_comp_hours,
+        cfg.entities.hp_backup_hours,
+      ].filter(Boolean);
+
+      const statIds = [
+        cfg.entities.hp_flow_temp,
+        cfg.entities.hp_return_temp,
+        cfg.entities.hp_outside_temp,
+        cfg.entities.hp_source_in_temp,
+        cfg.entities.hp_source_out_temp,
+        cfg.entities.hp_room_temp,
+      ].filter(Boolean);
+
+      try {
+        // 1. Fetch raw state history for status & counters
+        const historyByEntity: Record<
+          string,
+          Array<{ state: string; last_changed: string }>
+        > = {};
+
+        if (historyIds.length > 0) {
+          const histUrl = `/api/ha-proxy/history/period/${encodeURIComponent(
+            startIso
+          )}?end_time=${encodeURIComponent(endIso)}&filter_entity_id=${encodeURIComponent(
+            historyIds.join(",")
+          )}&minimal_response=1&significant_changes_only=1`;
+          const res = await fetch(histUrl, {
+            headers: {
+              "x-ha-url": cfg.ha_url,
+              "x-ha-token": cfg.token,
+            },
+          });
+          if (res.ok) {
+            const arr = (await res.json()) as Array<
+              Array<{ entity_id?: string; state: string; last_changed: string }>
+            >;
+            if (Array.isArray(arr)) {
+              for (const series of arr) {
+                if (series.length > 0 && series[0].entity_id) {
+                  historyByEntity[series[0].entity_id] = series;
+                }
+              }
+            }
+          }
+        }
+
+        // 2. Fetch hourly statistics for temperatures
+        let statsByEntity: Record<string, RecorderStatPoint[]> = {};
+        if (statIds.length > 0) {
+          try {
+            statsByEntity = await requestWs<Record<string, RecorderStatPoint[]>>(
+              {
+                type: "recorder/statistics_during_period",
+                start_time: startIso,
+                end_time: endIso,
+                period: "hour",
+                statistic_ids: statIds,
+                types: ["mean", "min", "max"],
+              },
+              30000
+            );
+          } catch {
+            const url = `/api/ha-proxy/recorder/statistics?start_time=${encodeURIComponent(
+              startIso
+            )}&end_time=${encodeURIComponent(
+              endIso
+            )}&period=hour&statistic_ids=${encodeURIComponent(statIds.join(","))}`;
+            const res = await fetch(url, {
+              headers: {
+                "x-ha-url": cfg.ha_url,
+                "x-ha-token": cfg.token,
+                "Content-Type": "application/json",
+              },
+            });
+            if (res.ok) statsByEntity = (await res.json()) as Record<string, RecorderStatPoint[]>;
+          }
+        }
+
+        // 3. Analyze heat/standby/otshutdown cycles
+        const statusPts = historyByEntity[cfg.entities.hp_status] ?? [];
+        const segments: HeatpumpCycleSegment[] = [];
+        for (let i = 0; i < statusPts.length; i++) {
+          const cur = statusPts[i];
+          const tStart = new Date(cur.last_changed).getTime();
+          const tEnd =
+            i + 1 < statusPts.length ? new Date(statusPts[i + 1].last_changed).getTime() : now;
+          const durationMin = Math.max(0, (tEnd - tStart) / 60000);
+          segments.push({
+            status: cur.state,
+            start: tStart,
+            end: tEnd,
+            durationMin: Math.round(durationMin * 10) / 10,
+          });
+        }
+
+        const heatSegs = segments.filter((s) => s.status === "heat");
+        const standbySegs = segments.filter((s) => s.status === "standby");
+        const otShutdownCount = segments.filter((s) => s.status === "otshutdown").length;
+
+        const avgHeatMinutes =
+          heatSegs.length > 0
+            ? Math.round(
+                (heatSegs.reduce((a, b) => a + b.durationMin, 0) / heatSegs.length) * 10
+              ) / 10
+            : 0;
+        const avgStandbyMinutes =
+          standbySegs.length > 0
+            ? Math.round(
+                (standbySegs.reduce((a, b) => a + b.durationMin, 0) / standbySegs.length) * 10
+              ) / 10
+            : 0;
+
+        const calcDelta = (entityId: string): number | null => {
+          const pts = historyByEntity[entityId] ?? [];
+          const nums = pts
+            .map((p) => parseFloat(p.state))
+            .filter((n) => !Number.isNaN(n));
+          if (nums.length < 2) return null;
+          return Math.round((nums[nums.length - 1] - nums[0]) * 10) / 10;
+        };
+
+        const compStartsDelta = calcDelta(cfg.entities.hp_comp_starts);
+        const compHoursDelta = calcDelta(cfg.entities.hp_comp_hours);
+        const backupHoursDelta = calcDelta(cfg.entities.hp_backup_hours);
+
+        // 4. Merge hourly temperature series
+        const hourMap = new Map<number, HeatpumpTempPoint>();
+        const ensureBucket = (ts: number) => {
+          let b = hourMap.get(ts);
+          if (!b) {
+            const d = new Date(ts);
+            b = {
+              time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              flow: null,
+              returnTemp: null,
+              outside: null,
+              room: null,
+              sourceIn: null,
+              sourceOut: null,
+              spread: null,
+            };
+            hourMap.set(ts, b);
+          }
+          return b;
+        };
+
+        const fillStat = (
+          entityId: string,
+          field: keyof Omit<HeatpumpTempPoint, "time" | "spread">
+        ) => {
+          for (const pt of statsByEntity[entityId] ?? []) {
+            if (pt.mean === undefined || pt.mean === null) continue;
+            const ts = new Date(pt.start).getTime();
+            const b = ensureBucket(ts);
+            b[field] = Math.round(pt.mean * 100) / 100;
+          }
+        };
+
+        fillStat(cfg.entities.hp_flow_temp, "flow");
+        fillStat(cfg.entities.hp_return_temp, "returnTemp");
+        fillStat(cfg.entities.hp_outside_temp, "outside");
+        fillStat(cfg.entities.hp_room_temp, "room");
+        fillStat(cfg.entities.hp_source_in_temp, "sourceIn");
+        fillStat(cfg.entities.hp_source_out_temp, "sourceOut");
+
+        const tempSeries = Array.from(hourMap.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([, pt]) => ({
+            ...pt,
+            spread:
+              pt.flow !== null && pt.returnTemp !== null
+                ? Math.round((pt.flow - pt.returnTemp) * 100) / 100
+                : null,
+          }));
+
+        const avgOf = (vals: Array<number | null>) => {
+          const valid = vals.filter((v): v is number => v !== null);
+          if (valid.length === 0) return null;
+          return Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 100) / 100;
+        };
+
+        const outsideStats = statsByEntity[cfg.entities.hp_outside_temp] ?? [];
+        const outsideMins = outsideStats
+          .map((p) => p.min ?? p.mean ?? null)
+          .filter((v): v is number => v !== null);
+        const outsideMaxs = outsideStats
+          .map((p) => p.max ?? p.mean ?? null)
+          .filter((v): v is number => v !== null);
+
+        const sourceInAvg = avgOf(tempSeries.map((p) => p.sourceIn));
+        const sourceOutAvg = avgOf(tempSeries.map((p) => p.sourceOut));
+
+        setState((prev) => ({
+          ...prev,
+          heatpump: {
+            loading: false,
+            error: null,
+            lastAnalyzed: Date.now(),
+            hoursWindow: hours,
+            heatCycles: heatSegs.length,
+            avgHeatMinutes,
+            avgStandbyMinutes,
+            otShutdownCount,
+            compStartsDelta,
+            compHoursDelta,
+            backupHoursDelta,
+            avgSpreadK: avgOf(tempSeries.map((p) => p.spread)),
+            outsideAvg: avgOf(tempSeries.map((p) => p.outside)),
+            outsideMin:
+              outsideMins.length > 0 ? Math.round(Math.min(...outsideMins) * 100) / 100 : null,
+            outsideMax:
+              outsideMaxs.length > 0 ? Math.round(Math.max(...outsideMaxs) * 100) / 100 : null,
+            roomAvg: avgOf(tempSeries.map((p) => p.room)),
+            sourceInAvg,
+            sourceOutAvg,
+            sourceSpreadK:
+              sourceInAvg !== null && sourceOutAvg !== null
+                ? Math.round((sourceInAvg - sourceOutAvg) * 100) / 100
+                : null,
+            tempSeries,
+            recentCycles: segments.slice(-20).reverse(),
+          },
+        }));
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          heatpump: {
+            ...prev.heatpump,
+            loading: false,
+            error: err instanceof Error ? err.message : "Wärmepumpen-Analyse fehlgeschlagen",
+          },
+        }));
+      }
+    },
+    [requestWs]
+  );
+
   const fetchEntities = useCallback(
     async (customUrl?: string, customToken?: string) => {
       const haUrl = customUrl ?? configRef.current.ha_url;
@@ -615,6 +901,11 @@ export function useHomeAssistant() {
       if (entityId === e.water_meter) draft.water_meter = parseNumOrNull(raw);
       if (entityId === e.water_today) draft.water_today = parseNumOrNull(raw);
       if (entityId === e.water_temp) draft.water_temp = parseNumOrNull(raw);
+      if (entityId === e.hp_status) draft.hp_live_status = raw;
+      if (entityId === e.hp_flow_temp) draft.hp_live_flow = parseNumOrNull(raw);
+      if (entityId === e.hp_return_temp) draft.hp_live_return = parseNumOrNull(raw);
+      if (entityId === e.hp_outside_temp) draft.hp_live_outside = parseNumOrNull(raw);
+      if (entityId === e.hp_room_temp) draft.hp_live_room = parseNumOrNull(raw);
 
       if (
         cfg.economic_settings.energy_price_mode === "entity" &&
@@ -762,5 +1053,6 @@ export function useHomeAssistant() {
     fetchEntities,
     fetchHistory,
     fetchPeriodStats,
+    fetchHeatpumpAnalysis,
   };
 }

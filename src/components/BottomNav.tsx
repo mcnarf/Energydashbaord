@@ -1,4 +1,4 @@
-import { Activity, Camera, LayoutDashboard, Settings, Zap } from "lucide-react";
+import { Activity, Camera, Flame, LayoutDashboard, Settings, Zap } from "lucide-react";
 import { ViewId } from "../types/dashboard";
 import { cn } from "../utils/formatters";
 
@@ -11,6 +11,7 @@ const ITEMS: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard }> 
   { id: "dashboard", label: "Dash", icon: LayoutDashboard },
   { id: "overview", label: "Übersicht", icon: Activity },
   { id: "trends", label: "Trends", icon: Zap },
+  { id: "heatpump", label: "WP", icon: Flame },
   { id: "camera", label: "Kamera", icon: Camera },
   { id: "settings", label: "Settings", icon: Settings },
 ];

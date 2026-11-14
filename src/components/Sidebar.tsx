@@ -4,6 +4,7 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Flame,
   LayoutDashboard,
   Maximize2,
   Minimize2,
@@ -30,6 +31,7 @@ const NAV_ITEMS: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "overview", label: "Übersicht", icon: Activity },
   { id: "trends", label: "Energie Trends", icon: Zap },
+  { id: "heatpump", label: "Wärmepumpe", icon: Flame },
   { id: "camera", label: "Kamera", icon: Camera },
   { id: "settings", label: "Einstellungen", icon: Settings },
 ];

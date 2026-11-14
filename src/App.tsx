@@ -3,6 +3,7 @@ import { BottomNav } from "./components/BottomNav";
 import { CameraPopup } from "./components/CameraPopup";
 import { CameraView } from "./components/CameraView";
 import { DashboardView } from "./components/DashboardView";
+import { HeatpumpView } from "./components/HeatpumpView";
 import { OverviewView } from "./components/OverviewView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
@@ -21,6 +22,7 @@ export function App() {
     fetchEntities,
     fetchHistory,
     fetchPeriodStats,
+    fetchHeatpumpAnalysis,
   } = useHomeAssistant();
   const [activeView, setActiveView] = useState<ViewId>(
     config.ha_url && config.token ? "dashboard" : "settings"
@@ -161,6 +163,13 @@ export function App() {
         )}
         {activeView === "trends" && (
           <TrendsView state={state} config={config} layout={layout} />
+        )}
+        {activeView === "heatpump" && (
+          <HeatpumpView
+            state={state}
+            layout={layout}
+            fetchHeatpumpAnalysis={fetchHeatpumpAnalysis}
+          />
         )}
         {activeView === "camera" && (
           <CameraView state={state} config={config} layout={layout} />
