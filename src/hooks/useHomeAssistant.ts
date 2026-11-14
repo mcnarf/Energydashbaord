@@ -33,6 +33,7 @@ const INITIAL_STATE: DashboardState = {
   battery_power: 0,
   battery_soc: null,
   battery_cycles: null,
+  battery_discharge_today: null,
   solar_today: null,
   solar_forecast_today: null,
   solar_forecast_tomorrow: null,
@@ -289,6 +290,7 @@ export function useHomeAssistant() {
       cfg.entities.solar_today,
       cfg.entities.grid_import_today,
       cfg.entities.grid_export_today,
+      cfg.entities.battery_discharge_today,
     ].filter(Boolean);
 
     if (ids.length === 0) return;
@@ -334,6 +336,7 @@ export function useHomeAssistant() {
           if (entityId === cfg.entities.solar_today) byMonth[key].solar += delta;
           if (entityId === cfg.entities.grid_import_today) byMonth[key].grid += delta;
           if (entityId === cfg.entities.grid_export_today) byMonth[key].export += delta;
+          if (entityId === cfg.entities.battery_discharge_today) byMonth[key].battery += delta;
         }
       }
 
@@ -486,6 +489,8 @@ export function useHomeAssistant() {
       if (entityId === e.battery_power) draft.battery_power = parseNumOrZero(raw);
       if (entityId === e.battery_soc) draft.battery_soc = parseNumOrNull(raw);
       if (entityId === e.battery_cycles) draft.battery_cycles = parseNumOrNull(raw);
+      if (entityId === e.battery_discharge_today)
+        draft.battery_discharge_today = parseNumOrNull(raw);
       if (entityId === e.solar_today) draft.solar_today = parseNumOrNull(raw);
       if (entityId === e.solar_forecast_today) draft.solar_forecast_today = parseNumOrNull(raw);
       if (entityId === e.solar_forecast_tomorrow) draft.solar_forecast_tomorrow = parseNumOrNull(raw);

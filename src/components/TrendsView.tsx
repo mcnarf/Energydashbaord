@@ -100,72 +100,116 @@ export function TrendsView({ state, config, layout }: TrendsViewProps) {
       : 0;
 
   const amortization = useMemo(() => {
-    const investment = config.economic_settings.investment_cost || 0;
-    const prevSavings = config.economic_settings.previous_savings || 0;
-    const recordedSavings =
-      cumulativeSavings.length > 0
-        ? cumulativeSavings[cumulativeSavings.length - 1].savings
-        : 0;
-    const totalSaved = prevSavings + recordedSavings;
-    const remaining = Math.max(0, investment - totalSaved);
-    const pct =
-      investment > 0 ? Math.min(100, Math.round((totalSaved / investment) * 1000) / 10) : 0;
+    const buildModel = (
+      investment: number,
+      prevSavings: number,
+      recordedSavings: number,
+      avgMonthly: number
+    ) => {
+      const totalSaved = prevSavings + recordedSavings;
+      const remaining = Math.max(0, investment - totalSaved);
+      const pct =
+        investment > 0 ? Math.min(100, Math.round((totalSaved / investment) * 1000) / 10) : 0;
 
-    const avgMonthly =
-      monthlyData.length > 0
-        ? recordedSavings / monthlyData.length
-        : todaySavings * 30;
+      let etaLabel = "Nicht berechenbar";
+      const projection: Array<{ label: string; savings: number }> = [];
 
-    let etaLabel = "Nicht berechenbar";
-    const projection: Array<{ label: string; savings: number }> = [];
-
-    if (investment > 0) {
-      if (remaining <= 0) {
-        etaLabel = "Vollständig amortisiert ✓";
-      } else if (avgMonthly > 1) {
-        const monthsLeft = Math.ceil(remaining / avgMonthly);
-        const years = Math.floor(monthsLeft / 12);
-        const months = monthsLeft % 12;
-        const target = new Date();
-        target.setMonth(target.getMonth() + monthsLeft);
-        const targetStr = target.toLocaleDateString("de-DE", {
-          month: "2-digit",
-          year: "numeric",
-        });
-        etaLabel =
-          years > 0
-            ? `~${years} J. ${months} Mon. (${targetStr})`
-            : `~${months} Mon. (${targetStr})`;
-
-        const maxSteps = Math.min(12, Math.max(6, Math.ceil(monthsLeft / 12) + 1));
-        const stepMonths = Math.max(1, Math.ceil(monthsLeft / maxSteps));
-        for (let i = 0; i <= maxSteps; i++) {
-          const mOffset = i * stepMonths;
-          const d = new Date();
-          d.setMonth(d.getMonth() + mOffset);
-          projection.push({
-            label: d.toLocaleDateString("de-DE", { month: "2-digit", year: "2-digit" }),
-            savings: Math.round(totalSaved + avgMonthly * mOffset),
+      if (investment > 0) {
+        if (remaining <= 0) {
+          etaLabel = "Vollständig amortisiert ✓";
+        } else if (avgMonthly > 1) {
+          const monthsLeft = Math.ceil(remaining / avgMonthly);
+          const years = Math.floor(monthsLeft / 12);
+          const months = monthsLeft % 12;
+          const target = new Date();
+          target.setMonth(target.getMonth() + monthsLeft);
+          const targetStr = target.toLocaleDateString("de-DE", {
+            month: "2-digit",
+            year: "numeric",
           });
+          etaLabel =
+            years > 0
+              ? `~${years} J. ${months} Mon. (${targetStr})`
+              : `~${months} Mon. (${targetStr})`;
+
+          const maxSteps = Math.min(12, Math.max(6, Math.ceil(monthsLeft / 12) + 1));
+          const stepMonths = Math.max(1, Math.ceil(monthsLeft / maxSteps));
+          for (let i = 0; i <= maxSteps; i++) {
+            const mOffset = i * stepMonths;
+            const d = new Date();
+            d.setMonth(d.getMonth() + mOffset);
+            projection.push({
+              label: d.toLocaleDateString("de-DE", { month: "2-digit", year: "2-digit" }),
+              savings: Math.round(totalSaved + avgMonthly * mOffset),
+            });
+          }
         }
       }
+
+      return { investment, totalSaved, remaining, pct, avgMonthly, etaLabel, projection };
+    };
+
+    const batteryBenefitPerKwh = Math.max(0, activePrice - feedIn);
+    const hasMonthlyBattery = monthlyData.some((m) => m.battery > 0);
+
+    let pvRecorded = 0;
+    let batRecorded = 0;
+    for (const m of monthlyData) {
+      const selfUsed = Math.max(0, m.solar - m.export);
+      const directSolar = hasMonthlyBattery ? Math.max(0, selfUsed - m.battery) : selfUsed;
+      pvRecorded += directSolar * activePrice + m.export * feedIn;
+      batRecorded += m.battery * batteryBenefitPerKwh;
+    }
+
+    // Fallback for battery if no monthly discharge entity is configured, using battery cycles
+    if (!hasMonthlyBattery && state.battery_cycles !== null && state.battery_cycles > 0) {
+      batRecorded =
+        state.battery_cycles *
+        (config.battery_settings.capacity_kwh || 10) *
+        0.9 *
+        batteryBenefitPerKwh;
+    }
+
+    const pvAvgMonthly =
+      monthlyData.length > 0 ? pvRecorded / monthlyData.length : todaySavings * 30;
+
+    let batAvgMonthly =
+      monthlyData.length > 0 && hasMonthlyBattery
+        ? batRecorded / monthlyData.length
+        : (state.battery_discharge_today ?? 0) * batteryBenefitPerKwh * 30;
+
+    if (batAvgMonthly <= 0 && batRecorded > 0 && config.economic_settings.battery_installation_date) {
+      const start = new Date(config.economic_settings.battery_installation_date);
+      const monthsElapsed = Math.max(
+        1,
+        (Date.now() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44)
+      );
+      batAvgMonthly = batRecorded / monthsElapsed;
     }
 
     return {
-      investment,
-      totalSaved,
-      remaining,
-      pct,
-      avgMonthly,
-      etaLabel,
-      projection,
+      pv: buildModel(
+        config.economic_settings.pv_investment_cost || 0,
+        config.economic_settings.pv_previous_savings || 0,
+        pvRecorded,
+        pvAvgMonthly
+      ),
+      battery: buildModel(
+        config.economic_settings.battery_investment_cost || 0,
+        config.economic_settings.battery_previous_savings || 0,
+        batRecorded,
+        batAvgMonthly
+      ),
     };
   }, [
-    config.economic_settings.investment_cost,
-    config.economic_settings.previous_savings,
-    cumulativeSavings,
-    monthlyData.length,
+    config.economic_settings,
+    config.battery_settings.capacity_kwh,
+    monthlyData,
+    activePrice,
+    feedIn,
     todaySavings,
+    state.battery_cycles,
+    state.battery_discharge_today,
   ]);
 
   return (
@@ -417,146 +461,205 @@ export function TrendsView({ state, config, layout }: TrendsViewProps) {
         </div>
       </div>
 
-      {/* Amortisation & ROI */}
-      <div
-        className={cn(
-          "glass p-8 rounded-[32px] flex flex-col gap-6",
-          isPhone && "p-4 rounded-2xl",
-          isTablet && "p-6 rounded-3xl"
-        )}
-      >
-        <div className="flex items-center justify-between flex-wrap gap-2">
+      {/* Amortisation & ROI (PV & Batterie getrennt) */}
+      <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", isPhone && "gap-4", isTablet && "gap-6")}>
+        <AmortizationCard
+          title="PV-Anlage Amortisation"
+          icon={Sun}
+          accentColor="#32d7ff"
+          accentTextClass="text-solar"
+          gradientId="roiPvGrad"
+          installationDate={config.economic_settings.pv_installation_date}
+          emptyHint="Hinterlege die Anschaffungskosten deiner PV-Anlage unter Einstellungen → Wirtschaftlichkeit & Öko."
+          data={amortization.pv}
+          isPhone={isPhone}
+          isTablet={isTablet}
+        />
+        <AmortizationCard
+          title="Batteriespeicher Amortisation"
+          icon={Battery}
+          accentColor="#10B981"
+          accentTextClass="text-battery"
+          gradientId="roiBatGrad"
+          installationDate={config.economic_settings.battery_installation_date}
+          subtitle="Berechnet über Entladung × (Bezugspreis − Einspeisevergütung)"
+          emptyHint="Hinterlege die Anschaffungskosten deines Batteriespeichers unter Einstellungen → Wirtschaftlichkeit & Öko."
+          data={amortization.battery}
+          isPhone={isPhone}
+          isTablet={isTablet}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface AmortizationModel {
+  investment: number;
+  totalSaved: number;
+  remaining: number;
+  pct: number;
+  avgMonthly: number;
+  etaLabel: string;
+  projection: Array<{ label: string; savings: number }>;
+}
+
+function AmortizationCard({
+  title,
+  icon: Icon,
+  accentColor,
+  accentTextClass,
+  gradientId,
+  installationDate,
+  subtitle,
+  emptyHint,
+  data,
+  isPhone,
+  isTablet,
+}: {
+  title: string;
+  icon: typeof Sun;
+  accentColor: string;
+  accentTextClass: string;
+  gradientId: string;
+  installationDate: string;
+  subtitle?: string;
+  emptyHint: string;
+  data: AmortizationModel;
+  isPhone: boolean;
+  isTablet: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "glass p-8 rounded-[32px] flex flex-col gap-6",
+        isPhone && "p-4 rounded-2xl",
+        isTablet && "p-6 rounded-3xl"
+      )}
+    >
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div className="flex flex-col gap-1">
           <h2 className="text-xl font-bold flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-battery" />
-            Anschaffungskosten & Amortisation
+            <Icon className={cn("w-5 h-5", accentTextClass)} />
+            {title}
           </h2>
-          {config.economic_settings.installation_date && (
-            <span className="text-xs font-bold text-slate-500">
-              Inbetriebnahme:{" "}
-              {new Date(config.economic_settings.installation_date).toLocaleDateString("de-DE")}
-            </span>
-          )}
+          {subtitle && <span className="text-[11px] text-slate-500">{subtitle}</span>}
         </div>
-
-        {amortization.investment <= 0 ? (
-          <div className="p-6 bg-surface/30 rounded-2xl border border-dashed border-border text-center text-sm text-slate-400">
-            Bitte hinterlege deine <strong>Anschaffungskosten (€)</strong> unter{" "}
-            <strong>Einstellungen → Wirtschaftlichkeit & Öko</strong>, um die Amortisation zu
-            berechnen.
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col gap-2">
-              <div className="flex justify-between text-sm font-bold">
-                <span className="text-slate-400">Amortisationsfortschritt</span>
-                <span className="text-battery">{amortization.pct.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-surface h-3.5 rounded-full overflow-hidden border border-border">
-                <div
-                  className="bg-gradient-to-r from-solar to-battery h-full transition-all duration-700"
-                  style={{ width: `${amortization.pct}%` }}
-                />
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
-                isPhone && "grid-cols-2 gap-3"
-              )}
-            >
-              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                  Anschaffungskosten
-                </span>
-                <span className="text-lg font-bold">
-                  €{amortization.investment.toLocaleString("de-DE")}
-                </span>
-              </div>
-              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                  Bereits amortisiert
-                </span>
-                <span className="text-lg font-bold text-battery">
-                  €{Math.round(amortization.totalSaved).toLocaleString("de-DE")}
-                </span>
-              </div>
-              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                  Restbetrag
-                </span>
-                <span className="text-lg font-bold text-solar">
-                  {amortization.remaining <= 0
-                    ? "€0 ✓"
-                    : `€${Math.round(amortization.remaining).toLocaleString("de-DE")}`}
-                </span>
-              </div>
-              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                  Vorauss. Break-Even
-                </span>
-                <span className="text-sm font-bold text-white">{amortization.etaLabel}</span>
-              </div>
-            </div>
-
-            {amortization.projection.length > 0 && (
-              <div className={cn("h-[240px] w-full", isPhone && "h-[190px]")}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={amortization.projection}>
-                    <defs>
-                      <linearGradient id="roiGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      stroke="#475569"
-                      fontSize={11}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      stroke="#475569"
-                      fontSize={10}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(v) => `€${v}`}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0F172A",
-                        border: "1px solid #1E293B",
-                        borderRadius: "12px",
-                      }}
-                    />
-                    <ReferenceLine
-                      y={amortization.investment}
-                      stroke="#32d7ff"
-                      strokeDasharray="4 4"
-                      label={{
-                        value: "Anschaffungskosten",
-                        fill: "#32d7ff",
-                        fontSize: 10,
-                        position: "insideTopLeft",
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="savings"
-                      name="Progn. Ersparnis (€)"
-                      stroke="#10B981"
-                      strokeWidth={3}
-                      fill="url(#roiGrad)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </>
+        {installationDate && (
+          <span className="text-xs font-bold text-slate-500">
+            Seit {new Date(installationDate).toLocaleDateString("de-DE")}
+          </span>
         )}
       </div>
+
+      {data.investment <= 0 ? (
+        <div className="p-6 bg-surface/30 rounded-2xl border border-dashed border-border text-center text-sm text-slate-400">
+          {emptyHint}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between text-sm font-bold">
+              <span className="text-slate-400">Amortisationsfortschritt</span>
+              <span className={accentTextClass}>{data.pct.toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-surface h-3.5 rounded-full overflow-hidden border border-border">
+              <div
+                className="h-full transition-all duration-700"
+                style={{ width: `${data.pct}%`, backgroundColor: accentColor }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                Anschaffungskosten
+              </span>
+              <span className="text-lg font-bold">€{data.investment.toLocaleString("de-DE")}</span>
+            </div>
+            <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                Bereits amortisiert
+              </span>
+              <span className={cn("text-lg font-bold", accentTextClass)}>
+                €{Math.round(data.totalSaved).toLocaleString("de-DE")}
+              </span>
+            </div>
+            <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                Restbetrag
+              </span>
+              <span className="text-lg font-bold text-white">
+                {data.remaining <= 0
+                  ? "€0 ✓"
+                  : `€${Math.round(data.remaining).toLocaleString("de-DE")}`}
+              </span>
+            </div>
+            <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                Vorauss. Break-Even
+              </span>
+              <span className="text-sm font-bold text-white">{data.etaLabel}</span>
+            </div>
+          </div>
+
+          {data.projection.length > 0 && (
+            <div className={cn("h-[210px] w-full", isPhone && "h-[180px]")}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data.projection}>
+                  <defs>
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={accentColor} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={accentColor} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    stroke="#475569"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="#475569"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => `€${v}`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0F172A",
+                      border: "1px solid #1E293B",
+                      borderRadius: "12px",
+                    }}
+                  />
+                  <ReferenceLine
+                    y={data.investment}
+                    stroke="#FBBF24"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: "Investition",
+                      fill: "#FBBF24",
+                      fontSize: 10,
+                      position: "insideTopLeft",
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="savings"
+                    name="Progn. Ersparnis (€)"
+                    stroke={accentColor}
+                    strokeWidth={3}
+                    fill={`url(#${gradientId})`}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

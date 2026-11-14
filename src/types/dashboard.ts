@@ -18,6 +18,7 @@ export interface EntityConfig {
   battery_power: string;
   battery_soc: string;
   battery_cycles: string;
+  battery_discharge_today: string;
   solar_today: string;
   solar_forecast_today: string;
   solar_forecast_tomorrow: string;
@@ -41,9 +42,12 @@ export interface EconomicSettings {
   energy_price_entity: string | null;
   feed_in_tariff: number;
   co2_factor: number;
-  investment_cost: number;
-  installation_date: string;
-  previous_savings: number;
+  pv_investment_cost: number;
+  pv_installation_date: string;
+  pv_previous_savings: number;
+  battery_investment_cost: number;
+  battery_installation_date: string;
+  battery_previous_savings: number;
 }
 
 export interface BatterySettings {
@@ -105,6 +109,7 @@ export interface DashboardState {
   battery_power: number;
   battery_soc: number | null;
   battery_cycles: number | null;
+  battery_discharge_today: number | null;
   solar_today: number | null;
   solar_forecast_today: number | null;
   solar_forecast_tomorrow: number | null;
