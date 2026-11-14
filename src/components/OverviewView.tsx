@@ -28,7 +28,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { DashboardConfig, DashboardState } from "../types/dashboard";
+import { DashboardConfig, DashboardState, OverviewPeriod } from "../types/dashboard";
 import {
   computeAutarkyPercent,
   computeDailySavings,
@@ -42,9 +42,49 @@ interface OverviewViewProps {
   config: DashboardConfig;
   layout: "pc" | "tablet" | "smartphone";
   fetchHistory: (startIso?: string, endIso?: string) => Promise<void>;
+  fetchPeriodStats: (
+    mode: Exclude<OverviewPeriod, "day">,
+    startIso: string,
+    endIso: string
+  ) => Promise<void>;
 }
 
-export function OverviewView({ state, config, layout, fetchHistory }: OverviewViewProps) {
+const PERIOD_TABS: Array<{ id: OverviewPeriod; label: string }> = [
+  { id: "day", label: "Tag" },
+  { id: "month", label: "Monat" },
+  { id: "quarter", label: "Quartal" },
+  { id: "year", label: "Jahr" },
+];
+
+function getPeriodRange(period: OverviewPeriod, refDateStr: string) {
+  const ref = new Date(refDateStr);
+  if (period === "month") {
+    const start = new Date(ref.getFullYear(), ref.getMonth(), 1, 0, 0, 0, 0);
+    const end = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
+    const label = start.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+    return { start, end, label };
+  }
+  if (period === "quarter") {
+    const q = Math.floor(ref.getMonth() / 3);
+    const start = new Date(ref.getFullYear(), q * 3, 1, 0, 0, 0, 0);
+    const end = new Date(ref.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999);
+    const label = `Q${q + 1} ${ref.getFullYear()}`;
+    return { start, end, label };
+  }
+  const start = new Date(ref.getFullYear(), 0, 1, 0, 0, 0, 0);
+  const end = new Date(ref.getFullYear(), 11, 31, 23, 59, 59, 999);
+  const label = `${ref.getFullYear()}`;
+  return { start, end, label };
+}
+
+export function OverviewView({
+  state,
+  config,
+  layout,
+  fetchHistory,
+  fetchPeriodStats,
+}: OverviewViewProps) {
+  const [period, setPeriod] = useState<OverviewPeriod>("day");
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [isToday, setIsToday] = useState(true);
 
@@ -52,19 +92,25 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
   const isTablet = layout === "tablet";
 
   useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    if (selectedDate === today) {
-      setIsToday(true);
-      fetchHistory();
+    if (period === "day") {
+      const today = new Date().toISOString().split("T")[0];
+      if (selectedDate === today) {
+        setIsToday(true);
+        fetchHistory();
+      } else {
+        setIsToday(false);
+        const start = new Date(selectedDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(selectedDate);
+        end.setHours(23, 59, 59, 999);
+        fetchHistory(start.toISOString(), end.toISOString());
+      }
     } else {
       setIsToday(false);
-      const start = new Date(selectedDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(selectedDate);
-      end.setHours(23, 59, 59, 999);
-      fetchHistory(start.toISOString(), end.toISOString());
+      const { start, end } = getPeriodRange(period, selectedDate);
+      fetchPeriodStats(period, start.toISOString(), end.toISOString());
     }
-  }, [selectedDate, fetchHistory]);
+  }, [period, selectedDate, fetchHistory, fetchPeriodStats]);
 
   const hourlyData: HourlyBucket[] = useMemo(() => {
     if (!state.history.solar.length && !state.history.consumption.length) return [];
@@ -108,24 +154,54 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
     return result;
   }, [state.history, selectedDate, isToday]);
 
-  const autarky = useMemo(() => computeAutarkyPercent(hourlyData), [hourlyData]);
-  const netGridKwh = useMemo(() => computeNetGridKwh(hourlyData), [hourlyData]);
-
   const activePrice =
     config.economic_settings.energy_price_mode === "entity" && state.current_energy_price !== null
       ? state.current_energy_price
       : config.economic_settings.energy_price || 0.35;
 
-  const savings = useMemo(
-    () =>
-      computeDailySavings(hourlyData, activePrice, config.economic_settings.feed_in_tariff || 0),
-    [hourlyData, activePrice, config.economic_settings.feed_in_tariff]
-  );
+  const periodTotals = useMemo(() => {
+    if (period === "day") return null;
+    return state.periodBuckets.reduce(
+      (acc, b) => {
+        acc.solarKwh += b.solarKwh;
+        acc.importKwh += b.gridImportKwh;
+        acc.exportKwh += b.gridExportKwh;
+        acc.consumptionKwh += b.consumptionKwh;
+        acc.waterL += b.waterL;
+        return acc;
+      },
+      { solarKwh: 0, importKwh: 0, exportKwh: 0, consumptionKwh: 0, waterL: 0 }
+    );
+  }, [period, state.periodBuckets]);
+
+  const autarky = useMemo(() => {
+    if (period === "day") return computeAutarkyPercent(hourlyData);
+    if (!periodTotals || periodTotals.consumptionKwh <= 0) return 0;
+    const selfUsed = Math.max(0, periodTotals.solarKwh - periodTotals.exportKwh);
+    return Math.min(100, Math.max(0, Math.round((selfUsed / periodTotals.consumptionKwh) * 100)));
+  }, [period, hourlyData, periodTotals]);
+
+  const netGridKwh = useMemo(() => {
+    if (period === "day") return computeNetGridKwh(hourlyData);
+    if (!periodTotals) return 0;
+    return periodTotals.importKwh - periodTotals.exportKwh;
+  }, [period, hourlyData, periodTotals]);
+
+  const savings = useMemo(() => {
+    const feedIn = config.economic_settings.feed_in_tariff || 0;
+    if (period === "day") return computeDailySavings(hourlyData, activePrice, feedIn);
+    if (!periodTotals) return 0;
+    const selfUsed = Math.max(0, periodTotals.solarKwh - periodTotals.exportKwh);
+    return selfUsed * activePrice + periodTotals.exportKwh * feedIn;
+  }, [period, hourlyData, periodTotals, activePrice, config.economic_settings.feed_in_tariff]);
 
   const co2SavedKg = useMemo(() => {
-    const solarKwh = hourlyData.reduce((s, h) => s + h.solar, 0) / 1000;
+    const solarKwh =
+      period === "day"
+        ? hourlyData.reduce((s, h) => s + h.solar, 0) / 1000
+        : periodTotals?.solarKwh ?? 0;
     return solarKwh * (config.economic_settings.co2_factor || 0.4);
-  }, [hourlyData, config.economic_settings.co2_factor]);
+  }, [period, hourlyData, periodTotals, config.economic_settings.co2_factor]);
 
   const topConsumers = useMemo(() => {
     return (config.entities.top_consumers || []).map((entityId) => {
@@ -151,23 +227,46 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
 
   const waterColor = getWaterColor(state.water_temp);
   const waterInfo = useMemo(() => {
+    if (period !== "day") {
+      return { value: periodTotals?.waterL ?? 0, temp: null };
+    }
     if (isToday) return { value: state.water_today ?? 0, temp: state.water_temp };
     const last = state.history.water[state.history.water.length - 1];
     return { value: last ? Math.round(last.value) : 0, temp: null };
-  }, [isToday, state.water_today, state.water_temp, state.history.water]);
+  }, [period, periodTotals, isToday, state.water_today, state.water_temp, state.history.water]);
 
-  const dateLabel = isToday
-    ? "Heute"
-    : new Date(selectedDate).toLocaleDateString("de-DE", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
+  const dateLabel = useMemo(() => {
+    if (period !== "day") return getPeriodRange(period, selectedDate).label;
+    return isToday
+      ? "Heute"
+      : new Date(selectedDate).toLocaleDateString("de-DE", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+  }, [period, selectedDate, isToday]);
 
-  const shiftDate = (days: number) => {
+  const isNextDisabled = useMemo(() => {
+    const now = new Date();
+    if (period === "day") return isToday;
+    const { end } = getPeriodRange(period, selectedDate);
+    return end >= now;
+  }, [period, selectedDate, isToday]);
+
+  const shiftPeriod = (dir: -1 | 1) => {
     const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    if (d > new Date()) return;
+    if (period === "day") d.setDate(d.getDate() + dir);
+    else if (period === "month") d.setMonth(d.getMonth() + dir);
+    else if (period === "quarter") d.setMonth(d.getMonth() + dir * 3);
+    else d.setFullYear(d.getFullYear() + dir);
+
+    if (dir > 0) {
+      const now = new Date();
+      if (period === "day" && d > now) return;
+      if (period !== "day" && getPeriodRange(period, d.toISOString().split("T")[0]).start > now) {
+        return;
+      }
+    }
     setSelectedDate(d.toISOString().split("T")[0]);
   };
 
@@ -211,42 +310,68 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
           </p>
         </div>
 
-        <div
-          className={cn(
-            "flex items-center gap-4 bg-surface p-2 rounded-2xl border border-border shadow-sm",
-            isPhone && "w-full justify-between"
-          )}
-        >
-          <button
-            onClick={() => shiftDate(-1)}
-            className="p-2 hover:bg-bg rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer"
-            title="Vorheriger Tag"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-2 px-4 py-2 bg-bg/50 rounded-xl border border-border">
-            <Calendar className="w-4 h-4 text-solar" />
-            <input
-              type="date"
-              value={selectedDate}
-              max={new Date().toISOString().split("T")[0]}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer [color-scheme:dark]"
-            />
+        <div className={cn("flex items-center gap-3 flex-wrap", isPhone && "w-full")}>
+          <div className="flex bg-surface p-1 rounded-2xl border border-border">
+            {PERIOD_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setPeriod(tab.id)}
+                className={cn(
+                  "px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                  period === tab.id
+                    ? "bg-solar text-bg shadow-lg"
+                    : "text-slate-400 hover:text-white"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <button
-            onClick={() => shiftDate(1)}
-            disabled={isToday}
+
+          <div
             className={cn(
-              "p-2 rounded-xl transition-all",
-              isToday
-                ? "text-slate-700 cursor-not-allowed"
-                : "text-slate-400 hover:text-white hover:bg-bg cursor-pointer"
+              "flex items-center gap-2 bg-surface p-2 rounded-2xl border border-border shadow-sm",
+              isPhone && "w-full justify-between"
             )}
-            title="Nächster Tag"
           >
-            <ChevronRight className="w-5 h-5" />
-          </button>
+            <button
+              onClick={() => shiftPeriod(-1)}
+              className="p-2 hover:bg-bg rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer"
+              title="Zurück"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            {period === "day" ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-bg/50 rounded-xl border border-border">
+                <Calendar className="w-4 h-4 text-solar" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  max={new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer [color-scheme:dark]"
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-1.5 bg-bg/50 rounded-xl border border-border min-w-[130px] justify-center">
+                <Calendar className="w-4 h-4 text-solar" />
+                <span className="text-sm font-bold">{dateLabel}</span>
+              </div>
+            )}
+            <button
+              onClick={() => shiftPeriod(1)}
+              disabled={isNextDisabled}
+              className={cn(
+                "p-2 rounded-xl transition-all",
+                isNextDisabled
+                  ? "text-slate-700 cursor-not-allowed"
+                  : "text-slate-400 hover:text-white hover:bg-bg cursor-pointer"
+              )}
+              title="Vor"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -337,36 +462,87 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
           </div>
 
           <div className={cn("h-[350px] w-full relative", isPhone && "h-[250px]")}>
-            {hourlyData.length === 0 ? (
-              <EmptyChart label="Keine Verlaufsdaten vorhanden" />
+            {period === "day" ? (
+              hourlyData.length === 0 ? (
+                <EmptyChart label="Keine Verlaufsdaten vorhanden" />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={hourlyData}>
+                    <defs>
+                      <linearGradient id="ovColorSolar" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#32d7ff" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#32d7ff" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="ovColorCons" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#94A3B8" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#94A3B8" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#475569"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                      interval={3}
+                    />
+                    <YAxis
+                      stroke="#475569"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `${v}W`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0F172A",
+                        border: "1px solid #1E293B",
+                        borderRadius: "12px",
+                        fontSize: "12px",
+                      }}
+                      itemStyle={{ fontWeight: "bold" }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="solar"
+                      name="Solar (W)"
+                      stroke="#32d7ff"
+                      strokeWidth={3}
+                      fillOpacity={1}
+                      fill="url(#ovColorSolar)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="consumption"
+                      name="Verbrauch (W)"
+                      stroke="#94A3B8"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#ovColorCons)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )
+            ) : state.periodBuckets.length === 0 ? (
+              <EmptyChart label="Keine Statistikdaten für diesen Zeitraum vorhanden" />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={hourlyData}>
-                  <defs>
-                    <linearGradient id="ovColorSolar" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#32d7ff" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#32d7ff" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="ovColorCons" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#94A3B8" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#94A3B8" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <BarChart data={state.periodBuckets}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
                   <XAxis
-                    dataKey="time"
+                    dataKey="label"
                     stroke="#475569"
-                    fontSize={10}
+                    fontSize={11}
                     tickLine={false}
                     axisLine={false}
-                    interval={3}
                   />
                   <YAxis
                     stroke="#475569"
                     fontSize={10}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(v) => `${v}W`}
+                    tickFormatter={(v) => `${v} kWh`}
                   />
                   <Tooltip
                     contentStyle={{
@@ -377,25 +553,20 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
                     }}
                     itemStyle={{ fontWeight: "bold" }}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="solar"
-                    name="Solar (W)"
-                    stroke="#32d7ff"
-                    strokeWidth={3}
-                    fillOpacity={1}
-                    fill="url(#ovColorSolar)"
+                  <Legend />
+                  <Bar
+                    dataKey="solarKwh"
+                    name="Solar (kWh)"
+                    fill="#32d7ff"
+                    radius={[4, 4, 0, 0]}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="consumption"
-                    name="Verbrauch (W)"
-                    stroke="#94A3B8"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#ovColorCons)"
+                  <Bar
+                    dataKey="consumptionKwh"
+                    name="Verbrauch (kWh)"
+                    fill="#94A3B8"
+                    radius={[4, 4, 0, 0]}
                   />
-                </AreaChart>
+                </BarChart>
               </ResponsiveContainer>
             )}
           </div>
@@ -410,7 +581,7 @@ export function OverviewView({ state, config, layout, fetchHistory }: OverviewVi
         >
           <h2 className="text-xl font-bold self-start">Autarkie-Mix</h2>
           <div className={cn("h-[250px] w-full relative", isPhone && "h-[200px]")}>
-            {hourlyData.length === 0 ? (
+            {(period === "day" ? hourlyData.length === 0 : state.periodBuckets.length === 0) ? (
               <EmptyChart label="Keine Daten vorhanden" />
             ) : (
               <>

@@ -13,8 +13,15 @@ import { ViewId } from "./types/dashboard";
 import { cn } from "./utils/formatters";
 
 export function App() {
-  const { state, config, callService, updateConfig, fetchEntities, fetchHistory } =
-    useHomeAssistant();
+  const {
+    state,
+    config,
+    callService,
+    updateConfig,
+    fetchEntities,
+    fetchHistory,
+    fetchPeriodStats,
+  } = useHomeAssistant();
   const [activeView, setActiveView] = useState<ViewId>(
     config.ha_url && config.token ? "dashboard" : "settings"
   );
@@ -149,6 +156,7 @@ export function App() {
             config={config}
             layout={layout}
             fetchHistory={fetchHistory}
+            fetchPeriodStats={fetchPeriodStats}
           />
         )}
         {activeView === "trends" && (

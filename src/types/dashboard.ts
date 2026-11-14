@@ -1,5 +1,17 @@
 export type ViewId = "dashboard" | "overview" | "trends" | "camera" | "settings";
 
+export type OverviewPeriod = "day" | "month" | "quarter" | "year";
+
+export interface PeriodBucket {
+  label: string;
+  solarKwh: number;
+  consumptionKwh: number;
+  gridImportKwh: number;
+  gridExportKwh: number;
+  batteryKwh: number;
+  waterL: number;
+}
+
 export type LayoutMode = "auto" | "pc" | "tablet" | "smartphone";
 
 export type DeviceType = "switch" | "light" | "climate";
@@ -140,4 +152,5 @@ export interface DashboardState {
     monthly: MonthlyStat[];
     weekly: WeeklyStat[];
   };
+  periodBuckets: PeriodBucket[];
 }

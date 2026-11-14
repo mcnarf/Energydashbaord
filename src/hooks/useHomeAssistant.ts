@@ -5,6 +5,8 @@ import {
   DashboardState,
   EntityOption,
   MonthlyStat,
+  OverviewPeriod,
+  PeriodBucket,
   WeeklyStat,
 } from "../types/dashboard";
 import { computeHomePower } from "../utils/energyMath";
@@ -56,6 +58,7 @@ const INITIAL_STATE: DashboardState = {
   device_states: {},
   history: { solar: [], consumption: [], battery: [], water: [] },
   statistics: { monthly: [], weekly: [] },
+  periodBuckets: [],
 };
 
 function parseNumOrNull(val: string): number | null {
@@ -277,6 +280,116 @@ export function useHomeAssistant() {
       }
 
       setState((prev) => ({ ...prev, history }));
+    },
+    [state.connected, requestWs]
+  );
+
+  const fetchPeriodStats = useCallback(
+    async (mode: Exclude<OverviewPeriod, "day">, startIso: string, endIso: string) => {
+      if (!state.connected) return;
+      const cfg = configRef.current;
+      const ids = [
+        cfg.entities.solar_today,
+        cfg.entities.grid_import_today,
+        cfg.entities.grid_export_today,
+        cfg.entities.battery_discharge_today,
+        cfg.entities.water_today,
+      ].filter(Boolean);
+
+      if (ids.length === 0) {
+        setState((prev) => ({ ...prev, periodBuckets: [] }));
+        return;
+      }
+
+      const haPeriod = mode === "year" ? "month" : "day";
+      let raw: Record<string, RecorderStatPoint[]> = {};
+      try {
+        raw = await requestWs<Record<string, RecorderStatPoint[]>>(
+          {
+            type: "recorder/statistics_during_period",
+            start_time: startIso,
+            end_time: endIso,
+            period: haPeriod,
+            statistic_ids: ids,
+          },
+          30000
+        );
+      } catch {
+        try {
+          const url = `/api/ha-proxy/recorder/statistics?start_time=${encodeURIComponent(
+            startIso
+          )}&end_time=${encodeURIComponent(endIso)}&period=${haPeriod}&statistic_ids=${encodeURIComponent(
+            ids.join(",")
+          )}`;
+          const res = await fetch(url, {
+            headers: {
+              "x-ha-url": cfg.ha_url,
+              "x-ha-token": cfg.token,
+              "Content-Type": "application/json",
+            },
+          });
+          if (res.ok) raw = (await res.json()) as Record<string, RecorderStatPoint[]>;
+        } catch (err) {
+          console.error("Period stats fetch failed:", err);
+        }
+      }
+
+      const monthNames = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+      const getIsoWeek = (d: Date) => {
+        const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+        const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+        return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+      };
+
+      const bucketsMap = new Map<string, PeriodBucket>();
+
+      const getKey = (startVal: string | number) => {
+        const d = new Date(startVal);
+        if (mode === "month") return `${d.getDate()}.`;
+        if (mode === "quarter") return `KW ${getIsoWeek(d)}`;
+        return monthNames[d.getMonth()];
+      };
+
+      for (const entityId of Object.keys(raw)) {
+        for (const pt of raw[entityId]) {
+          const key = getKey(pt.start);
+          let b = bucketsMap.get(key);
+          if (!b) {
+            b = {
+              label: key,
+              solarKwh: 0,
+              consumptionKwh: 0,
+              gridImportKwh: 0,
+              gridExportKwh: 0,
+              batteryKwh: 0,
+              waterL: 0,
+            };
+            bucketsMap.set(key, b);
+          }
+          const delta = Math.max(0, pt.change ?? 0);
+          if (entityId === cfg.entities.solar_today) b.solarKwh += delta;
+          if (entityId === cfg.entities.grid_import_today) b.gridImportKwh += delta;
+          if (entityId === cfg.entities.grid_export_today) b.gridExportKwh += delta;
+          if (entityId === cfg.entities.battery_discharge_today) b.batteryKwh += delta;
+          if (entityId === cfg.entities.water_today) b.waterL += delta;
+        }
+      }
+
+      const buckets = Array.from(bucketsMap.values()).map((b) => {
+        const selfUsed = Math.max(0, b.solarKwh - b.gridExportKwh);
+        return {
+          ...b,
+          solarKwh: Math.round(b.solarKwh * 10) / 10,
+          gridImportKwh: Math.round(b.gridImportKwh * 10) / 10,
+          gridExportKwh: Math.round(b.gridExportKwh * 10) / 10,
+          batteryKwh: Math.round(b.batteryKwh * 10) / 10,
+          consumptionKwh: Math.round((selfUsed + b.gridImportKwh) * 10) / 10,
+          waterL: Math.round(b.waterL),
+        };
+      });
+
+      setState((prev) => ({ ...prev, periodBuckets: buckets }));
     },
     [state.connected, requestWs]
   );
@@ -648,5 +761,6 @@ export function useHomeAssistant() {
     updateConfig,
     fetchEntities,
     fetchHistory,
+    fetchPeriodStats,
   };
 }
