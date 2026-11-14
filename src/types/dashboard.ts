@@ -41,6 +41,9 @@ export interface EconomicSettings {
   energy_price_entity: string | null;
   feed_in_tariff: number;
   co2_factor: number;
+  investment_cost: number;
+  installation_date: string;
+  previous_savings: number;
 }
 
 export interface BatterySettings {

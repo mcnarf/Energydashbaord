@@ -626,6 +626,75 @@ export function SettingsView({
                 className="bg-surface p-3 rounded-xl border border-border text-sm focus:outline-none focus:border-battery"
               />
             </div>
+
+            <div className="h-px bg-border my-1" />
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Anschaffungskosten Anlage (€)
+              </label>
+              <input
+                type="number"
+                step="100"
+                min="0"
+                placeholder="z.B. 15000"
+                value={draft.economic_settings.investment_cost}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    economic_settings: {
+                      ...draft.economic_settings,
+                      investment_cost: parseFloat(e.target.value) || 0,
+                    },
+                  })
+                }
+                className="bg-surface p-3 rounded-xl border border-border text-sm focus:outline-none focus:border-battery"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Inbetriebnahme
+                </label>
+                <input
+                  type="date"
+                  value={draft.economic_settings.installation_date}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      economic_settings: {
+                        ...draft.economic_settings,
+                        installation_date: e.target.value,
+                      },
+                    })
+                  }
+                  className="bg-surface p-3 rounded-xl border border-border text-sm focus:outline-none focus:border-battery [color-scheme:dark]"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Bisherige Ersparnis (€)
+                </label>
+                <input
+                  type="number"
+                  step="10"
+                  min="0"
+                  placeholder="0"
+                  value={draft.economic_settings.previous_savings}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      economic_settings: {
+                        ...draft.economic_settings,
+                        previous_savings: parseFloat(e.target.value) || 0,
+                      },
+                    })
+                  }
+                  className="bg-surface p-3 rounded-xl border border-border text-sm focus:outline-none focus:border-battery"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

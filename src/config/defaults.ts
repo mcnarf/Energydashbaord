@@ -34,6 +34,9 @@ export const DEFAULT_CONFIG: DashboardConfig = {
     energy_price_entity: null,
     feed_in_tariff: 0.08,
     co2_factor: 0.4,
+    investment_cost: 0,
+    installation_date: "",
+    previous_savings: 0,
   },
   battery_settings: {
     capacity_kwh: 10,

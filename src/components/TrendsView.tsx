@@ -19,6 +19,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -97,6 +98,75 @@ export function TrendsView({ state, config, layout }: TrendsViewProps) {
     state.battery_cycles !== null && config.battery_settings.max_cycles > 0
       ? Math.min(100, Math.round((state.battery_cycles / config.battery_settings.max_cycles) * 100))
       : 0;
+
+  const amortization = useMemo(() => {
+    const investment = config.economic_settings.investment_cost || 0;
+    const prevSavings = config.economic_settings.previous_savings || 0;
+    const recordedSavings =
+      cumulativeSavings.length > 0
+        ? cumulativeSavings[cumulativeSavings.length - 1].savings
+        : 0;
+    const totalSaved = prevSavings + recordedSavings;
+    const remaining = Math.max(0, investment - totalSaved);
+    const pct =
+      investment > 0 ? Math.min(100, Math.round((totalSaved / investment) * 1000) / 10) : 0;
+
+    const avgMonthly =
+      monthlyData.length > 0
+        ? recordedSavings / monthlyData.length
+        : todaySavings * 30;
+
+    let etaLabel = "Nicht berechenbar";
+    const projection: Array<{ label: string; savings: number }> = [];
+
+    if (investment > 0) {
+      if (remaining <= 0) {
+        etaLabel = "Vollständig amortisiert ✓";
+      } else if (avgMonthly > 1) {
+        const monthsLeft = Math.ceil(remaining / avgMonthly);
+        const years = Math.floor(monthsLeft / 12);
+        const months = monthsLeft % 12;
+        const target = new Date();
+        target.setMonth(target.getMonth() + monthsLeft);
+        const targetStr = target.toLocaleDateString("de-DE", {
+          month: "2-digit",
+          year: "numeric",
+        });
+        etaLabel =
+          years > 0
+            ? `~${years} J. ${months} Mon. (${targetStr})`
+            : `~${months} Mon. (${targetStr})`;
+
+        const maxSteps = Math.min(12, Math.max(6, Math.ceil(monthsLeft / 12) + 1));
+        const stepMonths = Math.max(1, Math.ceil(monthsLeft / maxSteps));
+        for (let i = 0; i <= maxSteps; i++) {
+          const mOffset = i * stepMonths;
+          const d = new Date();
+          d.setMonth(d.getMonth() + mOffset);
+          projection.push({
+            label: d.toLocaleDateString("de-DE", { month: "2-digit", year: "2-digit" }),
+            savings: Math.round(totalSaved + avgMonthly * mOffset),
+          });
+        }
+      }
+    }
+
+    return {
+      investment,
+      totalSaved,
+      remaining,
+      pct,
+      avgMonthly,
+      etaLabel,
+      projection,
+    };
+  }, [
+    config.economic_settings.investment_cost,
+    config.economic_settings.previous_savings,
+    cumulativeSavings,
+    monthlyData.length,
+    todaySavings,
+  ]);
 
   return (
     <div
@@ -345,6 +415,147 @@ export function TrendsView({ state, config, layout }: TrendsViewProps) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Amortisation & ROI */}
+      <div
+        className={cn(
+          "glass p-8 rounded-[32px] flex flex-col gap-6",
+          isPhone && "p-4 rounded-2xl",
+          isTablet && "p-6 rounded-3xl"
+        )}
+      >
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-battery" />
+            Anschaffungskosten & Amortisation
+          </h2>
+          {config.economic_settings.installation_date && (
+            <span className="text-xs font-bold text-slate-500">
+              Inbetriebnahme:{" "}
+              {new Date(config.economic_settings.installation_date).toLocaleDateString("de-DE")}
+            </span>
+          )}
+        </div>
+
+        {amortization.investment <= 0 ? (
+          <div className="p-6 bg-surface/30 rounded-2xl border border-dashed border-border text-center text-sm text-slate-400">
+            Bitte hinterlege deine <strong>Anschaffungskosten (€)</strong> unter{" "}
+            <strong>Einstellungen → Wirtschaftlichkeit & Öko</strong>, um die Amortisation zu
+            berechnen.
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between text-sm font-bold">
+                <span className="text-slate-400">Amortisationsfortschritt</span>
+                <span className="text-battery">{amortization.pct.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-surface h-3.5 rounded-full overflow-hidden border border-border">
+                <div
+                  className="bg-gradient-to-r from-solar to-battery h-full transition-all duration-700"
+                  style={{ width: `${amortization.pct}%` }}
+                />
+              </div>
+            </div>
+
+            <div
+              className={cn(
+                "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
+                isPhone && "grid-cols-2 gap-3"
+              )}
+            >
+              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Anschaffungskosten
+                </span>
+                <span className="text-lg font-bold">
+                  €{amortization.investment.toLocaleString("de-DE")}
+                </span>
+              </div>
+              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Bereits amortisiert
+                </span>
+                <span className="text-lg font-bold text-battery">
+                  €{Math.round(amortization.totalSaved).toLocaleString("de-DE")}
+                </span>
+              </div>
+              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Restbetrag
+                </span>
+                <span className="text-lg font-bold text-solar">
+                  {amortization.remaining <= 0
+                    ? "€0 ✓"
+                    : `€${Math.round(amortization.remaining).toLocaleString("de-DE")}`}
+                </span>
+              </div>
+              <div className="bg-surface/40 p-4 rounded-2xl border border-border">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Vorauss. Break-Even
+                </span>
+                <span className="text-sm font-bold text-white">{amortization.etaLabel}</span>
+              </div>
+            </div>
+
+            {amortization.projection.length > 0 && (
+              <div className={cn("h-[240px] w-full", isPhone && "h-[190px]")}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={amortization.projection}>
+                    <defs>
+                      <linearGradient id="roiGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#475569"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="#475569"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `€${v}`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0F172A",
+                        border: "1px solid #1E293B",
+                        borderRadius: "12px",
+                      }}
+                    />
+                    <ReferenceLine
+                      y={amortization.investment}
+                      stroke="#32d7ff"
+                      strokeDasharray="4 4"
+                      label={{
+                        value: "Anschaffungskosten",
+                        fill: "#32d7ff",
+                        fontSize: 10,
+                        position: "insideTopLeft",
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="savings"
+                      name="Progn. Ersparnis (€)"
+                      stroke="#10B981"
+                      strokeWidth={3}
+                      fill="url(#roiGrad)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
