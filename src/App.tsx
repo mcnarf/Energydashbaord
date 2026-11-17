@@ -17,6 +17,7 @@ export function App() {
   const {
     state,
     config,
+    serverConfigLoaded,
     callService,
     updateConfig,
     fetchEntities,
@@ -27,6 +28,20 @@ export function App() {
   const [activeView, setActiveView] = useState<ViewId>(
     config.ha_url && config.token ? "dashboard" : "settings"
   );
+  const autoSwitchedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      serverConfigLoaded &&
+      !autoSwitchedRef.current &&
+      config.ha_url &&
+      config.token &&
+      activeView === "settings"
+    ) {
+      autoSwitchedRef.current = true;
+      setActiveView("dashboard");
+    }
+  }, [serverConfigLoaded, config.ha_url, config.token, activeView]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [popupVisible, setPopupVisible] = useState(false);

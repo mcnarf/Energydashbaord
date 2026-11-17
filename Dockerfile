@@ -16,8 +16,11 @@ ARG GIT_COMMIT=""
 ARG BUILD_DATE=""
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV DATA_DIR=/app/data
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
+
+RUN mkdir -p /app/data
 
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/server.js ./

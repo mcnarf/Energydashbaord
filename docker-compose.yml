@@ -11,5 +11,11 @@ services:
       - "8080:3000"
     environment:
       - PORT=3000
+      - DATA_DIR=/app/data
+    volumes:
+      - voltix-data:/app/data
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+volumes:
+  voltix-data:

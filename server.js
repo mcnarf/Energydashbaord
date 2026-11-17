@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "dist");
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 const PORT = parseInt(process.env.PORT || "3000", 10);
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf-8"));
 
@@ -61,6 +65,60 @@ async function handleProxy(req, res, reqUrl) {
   }
 }
 
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    req.on("error", reject);
+  });
+}
+
+function handleGetConfig(res) {
+  try {
+    if (!fs.existsSync(CONFIG_FILE)) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ config: null }));
+      return;
+    }
+    const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ config: parsed }));
+  } catch (err) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : "Failed to read config",
+      })
+    );
+  }
+}
+
+async function handleSaveConfig(req, res) {
+  try {
+    const body = await readBody(req);
+    const parsed = JSON.parse(body);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid config payload" }));
+      return;
+    }
+    const tmpFile = `${CONFIG_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(parsed, null, 2), "utf-8");
+    fs.renameSync(tmpFile, CONFIG_FILE);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : "Failed to save config",
+      })
+    );
+  }
+}
+
 function serveStatic(res, filePath) {
   const ext = path.extname(filePath);
   const mime = MIME_TYPES[ext] || "application/octet-stream";
@@ -86,6 +144,20 @@ const server = http.createServer(async (req, res) => {
   if (reqUrl.pathname === "/api/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+
+  if (reqUrl.pathname === "/api/config") {
+    if (req.method === "GET") {
+      handleGetConfig(res);
+      return;
+    }
+    if (req.method === "POST" || req.method === "PUT") {
+      await handleSaveConfig(req, res);
+      return;
+    }
+    res.writeHead(405, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Method not allowed" }));
     return;
   }
 

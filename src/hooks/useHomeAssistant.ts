@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadConfig, saveConfig } from "../config/defaults";
+import { loadConfig, mergeConfig, saveConfig } from "../config/defaults";
 import {
   DashboardConfig,
   DashboardState,
@@ -105,6 +105,7 @@ function parseNumOrZero(val: string): number {
 
 export function useHomeAssistant() {
   const [config, setConfig] = useState<DashboardConfig>(() => loadConfig());
+  const [serverConfigLoaded, setServerConfigLoaded] = useState(false);
   const [state, setState] = useState<DashboardState>(INITIAL_STATE);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -116,10 +117,37 @@ export function useHomeAssistant() {
   const configRef = useRef(config);
   configRef.current = config;
 
+  // Load shared configuration from server on startup so any user/browser sees the dashboard
+  useEffect(() => {
+    let active = true;
+    fetch("/api/config")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { config?: Partial<DashboardConfig> | null } | null) => {
+        if (!active) return;
+        if (data?.config) {
+          const merged = mergeConfig(data.config);
+          saveConfig(merged);
+          setConfig(merged);
+        }
+        setServerConfigLoaded(true);
+      })
+      .catch(() => {
+        if (active) setServerConfigLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const updateConfig = useCallback((next: Partial<DashboardConfig>) => {
     setConfig((prev) => {
-      const merged = { ...prev, ...next };
+      const merged = mergeConfig({ ...prev, ...next });
       saveConfig(merged);
+      fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      }).catch((err) => console.error("Failed to save config to server:", err));
       return merged;
     });
   }, []);
@@ -1048,6 +1076,7 @@ export function useHomeAssistant() {
   return {
     state,
     config,
+    serverConfigLoaded,
     callService,
     updateConfig,
     fetchEntities,
