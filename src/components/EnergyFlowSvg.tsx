@@ -47,10 +47,22 @@ interface EnergyFlowSvgProps {
   state: DashboardState;
   waterFlowing: boolean;
   widgetScale: number;
+  isPhone?: boolean;
 }
 
-export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSvgProps) {
+export function EnergyFlowSvg({
+  state,
+  waterFlowing,
+  widgetScale,
+  isPhone = false,
+}: EnergyFlowSvgProps) {
   const waterColor = getWaterColor(state.water_temp);
+  const labelCls = isPhone
+    ? "text-[13px] font-bold uppercase tracking-wider"
+    : "text-[11px] font-bold uppercase tracking-wider";
+  const valueCls = isPhone
+    ? "text-[16px] fill-white font-bold"
+    : "text-[13px] fill-white font-bold";
 
   return (
     <div
@@ -86,13 +98,13 @@ export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSv
           />
           <Home className="w-8 h-8 text-slate-400 -translate-x-4 -translate-y-4" />
           <text
-            y="55"
+            y={isPhone ? "58" : "55"}
             textAnchor="middle"
-            className="text-[10px] fill-slate-500 font-bold uppercase tracking-wider"
+            className={cn(labelCls, "fill-slate-400")}
           >
             Haus
           </text>
-          <text y="70" textAnchor="middle" className="text-xs fill-white font-bold">
+          <text y={isPhone ? "76" : "71"} textAnchor="middle" className={valueCls}>
             {formatPower(state.home_power)}
           </text>
         </g>
@@ -109,13 +121,13 @@ export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSv
           />
           <Sun className="w-6 h-6 text-solar -translate-x-3 -translate-y-3" />
           <text
-            y="-40"
+            y={isPhone ? "-46" : "-42"}
             textAnchor="middle"
-            className="text-[10px] fill-solar font-bold uppercase tracking-wider"
+            className={cn(labelCls, "fill-solar")}
           >
             Solar
           </text>
-          <text y="-27" textAnchor="middle" className="text-xs fill-white font-bold">
+          <text y={isPhone ? "-29" : "-28"} textAnchor="middle" className={valueCls}>
             {formatPower(state.solar_power)}
           </text>
         </g>
@@ -132,13 +144,13 @@ export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSv
           />
           <Zap className="w-6 h-6 text-grid -translate-x-3 -translate-y-3" />
           <text
-            y="-40"
+            y={isPhone ? "-46" : "-42"}
             textAnchor="middle"
-            className="text-[10px] fill-grid font-bold uppercase tracking-wider"
+            className={cn(labelCls, "fill-grid")}
           >
             Netz
           </text>
-          <text y="-27" textAnchor="middle" className="text-xs fill-white font-bold">
+          <text y={isPhone ? "-29" : "-28"} textAnchor="middle" className={valueCls}>
             {formatPower(state.grid_power)}
           </text>
         </g>
@@ -155,13 +167,13 @@ export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSv
           />
           <Battery className="w-6 h-6 text-battery -translate-x-3 -translate-y-3" />
           <text
-            y="-40"
+            y={isPhone ? "-46" : "-42"}
             textAnchor="middle"
-            className="text-[10px] fill-battery font-bold uppercase tracking-wider"
+            className={cn(labelCls, "fill-battery")}
           >
             Batterie
           </text>
-          <text y="-27" textAnchor="middle" className="text-xs fill-white font-bold">
+          <text y={isPhone ? "-29" : "-28"} textAnchor="middle" className={valueCls}>
             {formatPower(state.battery_power)}
           </text>
         </g>
@@ -178,13 +190,13 @@ export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSv
           />
           <Car className="w-6 h-6 text-accent -translate-x-3 -translate-y-3" />
           <text
-            y="40"
+            y={isPhone ? "44" : "40"}
             textAnchor="middle"
-            className="text-[10px] fill-accent font-bold uppercase tracking-wider"
+            className={cn(labelCls, "fill-accent")}
           >
             E-Auto
           </text>
-          <text y="53" textAnchor="middle" className="text-xs fill-white font-bold">
+          <text y={isPhone ? "62" : "55"} textAnchor="middle" className={valueCls}>
             {formatPower(state.ev_charge_power || 0)}
           </text>
         </g>
@@ -205,17 +217,25 @@ export function EnergyFlowSvg({ state, waterFlowing, widgetScale }: EnergyFlowSv
             style={{ color: waterColor.base }}
           />
           <text
-            y="40"
+            y={isPhone ? "44" : "40"}
             textAnchor="middle"
-            className="text-[10px] font-bold uppercase tracking-wider"
+            className={labelCls}
             style={{ fill: waterColor.base }}
           >
             Wasser
           </text>
-          <text y="53" textAnchor="middle" className="text-[10px] fill-white font-bold">
+          <text
+            y={isPhone ? "60" : "55"}
+            textAnchor="middle"
+            className={isPhone ? "text-[13px] fill-white font-bold" : "text-[11px] fill-white font-bold"}
+          >
             {state.water_today ?? 0} L | {state.water_temp ?? 0} °C
           </text>
-          <text y="65" textAnchor="middle" className="text-[9px] fill-slate-500">
+          <text
+            y={isPhone ? "74" : "68"}
+            textAnchor="middle"
+            className={isPhone ? "text-[11px] fill-slate-400" : "text-[10px] fill-slate-500"}
+          >
             {state.water_meter ?? 0} m³
           </text>
         </g>

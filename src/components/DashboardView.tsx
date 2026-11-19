@@ -106,7 +106,7 @@ export function DashboardView({
         <section
           className={cn(
             "col-span-12 lg:col-span-8 glass rounded-3xl p-8 flex flex-col items-center justify-center min-h-[500px]",
-            isPhone && "p-4 min-h-[340px]",
+            isPhone && "px-2 py-5 min-h-[340px]",
             isTablet && "p-6 min-h-[400px]"
           )}
         >
@@ -114,6 +114,7 @@ export function DashboardView({
             state={state}
             waterFlowing={waterFlowing}
             widgetScale={config.ui_settings.widget_scale}
+            isPhone={isPhone}
           />
         </section>
 
@@ -453,12 +454,12 @@ function MiniStat({
         <span
           className={cn(
             "text-[10px] font-bold text-slate-500 uppercase tracking-wider",
-            isPhone && "text-[8px]"
+            isPhone && "text-[10px]"
           )}
         >
           {label}
         </span>
-        <span className={cn("text-sm font-bold", isPhone && "text-xs")}>{value}</span>
+        <span className={cn("text-sm font-bold", isPhone && "text-sm")}>{value}</span>
       </div>
     </div>
   );
