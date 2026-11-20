@@ -13,7 +13,14 @@ import {
   Zap,
 } from "lucide-react";
 import { mergeConfig } from "../config/defaults";
-import { DashboardConfig, DashboardState, DeviceType, LayoutMode } from "../types/dashboard";
+import {
+  CustomFlowIcon,
+  DashboardConfig,
+  DashboardState,
+  DeviceType,
+  FlowDirection,
+  LayoutMode,
+} from "../types/dashboard";
 import { cn } from "../utils/formatters";
 
 interface SettingsViewProps {
@@ -500,6 +507,164 @@ export function SettingsView({
               + Smart Gerät hinzufügen
             </button>
           </div>
+        </div>
+
+        {/* Zusätzliche Energiefluss-Entitäten */}
+        <div className="glass p-8 rounded-3xl flex flex-col gap-6 md:col-span-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Zap className="w-5 h-5 text-solar" />
+              Zusätzliche Energiefluss-Entitäten
+            </h2>
+            <span className="text-xs text-slate-500">
+              Bis zu 5 freie Sensoren in der Flow-Grafik (z.B. Balkonkraftwerk, Wärmepumpe)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(draft.custom_flow_nodes || []).map((node, idx) => (
+              <div
+                key={node.id}
+                className="p-4 bg-surface/50 border border-border rounded-2xl flex flex-col gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    Flow-Node {idx + 1}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const next = [...(draft.custom_flow_nodes || [])];
+                      next.splice(idx, 1);
+                      setDraft({ ...draft, custom_flow_nodes: next });
+                    }}
+                    className="text-red-400 hover:text-red-300 text-[10px] font-bold uppercase cursor-pointer"
+                  >
+                    Entfernen
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Name</label>
+                    <input
+                      type="text"
+                      placeholder="z.B. Balkonkraftwerk"
+                      value={node.name}
+                      onChange={(e) => {
+                        const next = [...(draft.custom_flow_nodes || [])];
+                        next[idx] = { ...node, name: e.target.value };
+                        setDraft({ ...draft, custom_flow_nodes: next });
+                      }}
+                      className="bg-surface p-2 rounded-lg border border-border text-xs focus:outline-none focus:border-solar"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Icon</label>
+                    <select
+                      value={node.icon}
+                      onChange={(e) => {
+                        const next = [...(draft.custom_flow_nodes || [])];
+                        next[idx] = { ...node, icon: e.target.value as CustomFlowIcon };
+                        setDraft({ ...draft, custom_flow_nodes: next });
+                      }}
+                      className="bg-surface p-2 rounded-lg border border-border text-xs focus:outline-none focus:border-solar"
+                    >
+                      <option value="sun">Sonne / PV</option>
+                      <option value="zap">Blitz / Strom</option>
+                      <option value="flame">Flamme / Wärmepumpe</option>
+                      <option value="plug">Stecker / Verbraucher</option>
+                      <option value="battery">Batterie</option>
+                      <option value="car">E-Auto</option>
+                      <option value="fan">Klima / Lüftung</option>
+                      <option value="droplets">Wasser / Pool</option>
+                      <option value="home">Haus / Nebengebäude</option>
+                      <option value="cpu">Server / Technik</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    Entitäts-ID (Leistung in W)
+                  </label>
+                  <input
+                    type="text"
+                    list="ha-entities"
+                    placeholder="z.B. sensor.balkonkraftwerk_power"
+                    value={node.entity_id}
+                    onChange={(e) => {
+                      const next = [...(draft.custom_flow_nodes || [])];
+                      next[idx] = { ...node, entity_id: e.target.value };
+                      setDraft({ ...draft, custom_flow_nodes: next });
+                    }}
+                    className="bg-surface p-2 rounded-lg border border-border text-xs focus:outline-none focus:border-solar"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Flussrichtung
+                    </label>
+                    <select
+                      value={node.direction}
+                      onChange={(e) => {
+                        const next = [...(draft.custom_flow_nodes || [])];
+                        next[idx] = { ...node, direction: e.target.value as FlowDirection };
+                        setDraft({ ...draft, custom_flow_nodes: next });
+                      }}
+                      className="bg-surface p-2 rounded-lg border border-border text-xs focus:outline-none focus:border-solar"
+                    >
+                      <option value="to_home">Zum Haus (Erzeuger)</option>
+                      <option value="from_home">Vom Haus (Verbraucher)</option>
+                      <option value="bidirectional">Bidirektional (+/-)</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Farbe</label>
+                    <select
+                      value={node.color}
+                      onChange={(e) => {
+                        const next = [...(draft.custom_flow_nodes || [])];
+                        next[idx] = { ...node, color: e.target.value };
+                        setDraft({ ...draft, custom_flow_nodes: next });
+                      }}
+                      className="bg-surface p-2 rounded-lg border border-border text-xs focus:outline-none focus:border-solar"
+                    >
+                      <option value="#32d7ff">Cyan (Solar)</option>
+                      <option value="#facc15">Gelb (PV / Sonne)</option>
+                      <option value="#f97316">Orange (Wärme)</option>
+                      <option value="#10b981">Grün (Speicher)</option>
+                      <option value="#6366f1">Indigo (Verbraucher)</option>
+                      <option value="#ec4899">Pink (Spezial)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {(draft.custom_flow_nodes?.length || 0) < 5 && (
+            <button
+              onClick={() =>
+                setDraft({
+                  ...draft,
+                  custom_flow_nodes: [
+                    ...(draft.custom_flow_nodes || []),
+                    {
+                      id: `flow_${Date.now()}`,
+                      name: "Balkonkraftwerk",
+                      entity_id: "",
+                      icon: "sun",
+                      direction: "to_home",
+                      color: "#facc15",
+                    },
+                  ],
+                })
+              }
+              className="w-full py-3 border border-dashed border-border rounded-2xl text-xs font-bold text-slate-500 hover:text-solar hover:border-solar/50 transition-all cursor-pointer"
+            >
+              + Entität zur Flow-Grafik hinzufügen
+            </button>
+          )}
         </div>
 
         {/* Wirtschaftlichkeit */}

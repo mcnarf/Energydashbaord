@@ -1,7 +1,39 @@
 import { motion } from "framer-motion";
-import { Battery, Car, Droplets, Home, Sun, Zap } from "lucide-react";
-import { DashboardState } from "../types/dashboard";
+import {
+  Battery,
+  Car,
+  Cpu,
+  Droplets,
+  Fan,
+  Flame,
+  Home,
+  Plug,
+  Sun,
+  Zap,
+} from "lucide-react";
+import { CustomFlowIcon, CustomFlowNode, DashboardState } from "../types/dashboard";
 import { cn, formatPower, getWaterColor } from "../utils/formatters";
+
+const CUSTOM_ICON_MAP: Record<CustomFlowIcon, typeof Sun> = {
+  sun: Sun,
+  zap: Zap,
+  flame: Flame,
+  plug: Plug,
+  battery: Battery,
+  car: Car,
+  fan: Fan,
+  droplets: Droplets,
+  home: Home,
+  cpu: Cpu,
+};
+
+const CUSTOM_SLOTS: Array<[number, number]> = [
+  [85, 85],
+  [315, 85],
+  [55, 305],
+  [345, 305],
+  [200, 365],
+];
 
 interface FlowLineProps {
   from: [number, number];
@@ -48,6 +80,7 @@ interface EnergyFlowSvgProps {
   waterFlowing: boolean;
   widgetScale: number;
   isPhone?: boolean;
+  customNodes?: CustomFlowNode[];
 }
 
 export function EnergyFlowSvg({
@@ -55,6 +88,7 @@ export function EnergyFlowSvg({
   waterFlowing,
   widgetScale,
   isPhone = false,
+  customNodes = [],
 }: EnergyFlowSvgProps) {
   const waterColor = getWaterColor(state.water_temp);
   const labelCls = isPhone
@@ -239,6 +273,65 @@ export function EnergyFlowSvg({
             {state.water_meter ?? 0} m³
           </text>
         </g>
+
+        {/* Frei definierbare Zusatz-Entitäten */}
+        {customNodes.slice(0, CUSTOM_SLOTS.length).map((node, idx) => {
+          const [nx, ny] = CUSTOM_SLOTS[idx];
+          const dx = 200 - nx;
+          const dy = 200 - ny;
+          const dist = Math.hypot(dx, dy) || 1;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          const nodeEdge: [number, number] = [nx + ux * 25, ny + uy * 25];
+          const homeEdge: [number, number] = [200 - ux * 40, 200 - uy * 40];
+
+          const rawVal = parseFloat(state.device_states[node.entity_id] ?? "0");
+          const powerVal = Number.isNaN(rawVal) ? 0 : rawVal;
+          const flowPower =
+            node.direction === "to_home"
+              ? Math.abs(powerVal)
+              : node.direction === "from_home"
+              ? -Math.abs(powerVal)
+              : powerVal;
+
+          const IconComp = CUSTOM_ICON_MAP[node.icon] || Zap;
+          const isTop = ny < 200;
+          const active = Math.abs(powerVal) >= 10;
+          const color = node.color || "#32d7ff";
+
+          return (
+            <g key={node.id}>
+              <FlowLine from={nodeEdge} to={homeEdge} power={flowPower} color={color} />
+              <g transform={`translate(${nx}, ${ny})`}>
+                <circle r="25" className="fill-surface stroke-border" />
+                <circle
+                  r="25"
+                  className={cn("transition-opacity duration-500", active ? "opacity-100" : "opacity-0")}
+                  style={{ fill: `${color}1a`, stroke: `${color}66` }}
+                />
+                <IconComp
+                  className="w-6 h-6 -translate-x-3 -translate-y-3"
+                  style={{ color }}
+                />
+                <text
+                  y={isTop ? (isPhone ? "-46" : "-42") : isPhone ? "44" : "40"}
+                  textAnchor="middle"
+                  className={labelCls}
+                  style={{ fill: color }}
+                >
+                  {node.name || "Sensor"}
+                </text>
+                <text
+                  y={isTop ? (isPhone ? "-29" : "-28") : isPhone ? "62" : "55"}
+                  textAnchor="middle"
+                  className={valueCls}
+                >
+                  {formatPower(powerVal)}
+                </text>
+              </g>
+            </g>
+          );
+        })}
       </svg>
     </div>
   );

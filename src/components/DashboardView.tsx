@@ -115,6 +115,7 @@ export function DashboardView({
             waterFlowing={waterFlowing}
             widgetScale={config.ui_settings.widget_scale}
             isPhone={isPhone}
+            customNodes={config.custom_flow_nodes}
           />
         </section>
 

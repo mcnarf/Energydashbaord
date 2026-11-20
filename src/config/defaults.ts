@@ -70,6 +70,7 @@ export const DEFAULT_CONFIG: DashboardConfig = {
     { id: "ev", name: "E-Auto Ladestation", entity_id: "switch.ev_charger", type: "switch" },
     { id: "lights", name: "Smarte Lichter", entity_id: "light.living_room_lights", type: "light" },
   ],
+  custom_flow_nodes: [],
 };
 
 export function mergeConfig(partial: Partial<DashboardConfig>): DashboardConfig {
@@ -100,6 +101,9 @@ export function mergeConfig(partial: Partial<DashboardConfig>): DashboardConfig 
     smart_devices: Array.isArray(partial.smart_devices)
       ? partial.smart_devices
       : DEFAULT_CONFIG.smart_devices,
+    custom_flow_nodes: Array.isArray(partial.custom_flow_nodes)
+      ? partial.custom_flow_nodes
+      : DEFAULT_CONFIG.custom_flow_nodes,
   };
 }
 

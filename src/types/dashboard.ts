@@ -16,6 +16,29 @@ export type LayoutMode = "auto" | "pc" | "tablet" | "smartphone";
 
 export type DeviceType = "switch" | "light" | "climate";
 
+export type CustomFlowIcon =
+  | "sun"
+  | "zap"
+  | "flame"
+  | "plug"
+  | "battery"
+  | "car"
+  | "fan"
+  | "droplets"
+  | "home"
+  | "cpu";
+
+export type FlowDirection = "to_home" | "from_home" | "bidirectional";
+
+export interface CustomFlowNode {
+  id: string;
+  name: string;
+  entity_id: string;
+  icon: CustomFlowIcon;
+  direction: FlowDirection;
+  color: string;
+}
+
 export interface SmartDevice {
   id: string;
   name: string;
@@ -97,6 +120,7 @@ export interface DashboardConfig {
   camera_settings: CameraSettings;
   ui_settings: UiSettings;
   smart_devices: SmartDevice[];
+  custom_flow_nodes: CustomFlowNode[];
 }
 
 export interface EntityOption {

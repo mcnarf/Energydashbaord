@@ -893,6 +893,12 @@ export function useHomeAssistant() {
   }, [state.connected, fetchHistory, fetchStatistics]);
 
   useEffect(() => {
+    if (state.connected) {
+      sendWs({ type: "get_states" });
+    }
+  }, [state.connected, config.custom_flow_nodes, config.smart_devices, config.entities.top_consumers, sendWs]);
+
+  useEffect(() => {
     if (!config.ha_url || !config.token) {
       setState((prev) => ({ ...prev, connected: false }));
       return;
@@ -952,7 +958,8 @@ export function useHomeAssistant() {
 
       const tracked =
         cfg.smart_devices.some((d) => d.entity_id === entityId) ||
-        (e.top_consumers ?? []).includes(entityId);
+        (e.top_consumers ?? []).includes(entityId) ||
+        (cfg.custom_flow_nodes ?? []).some((n) => n.entity_id === entityId);
       if (tracked) {
         deviceStates[entityId] = raw;
       }
